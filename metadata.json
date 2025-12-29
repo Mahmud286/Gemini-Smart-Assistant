@@ -1,0 +1,7 @@
+{
+  "name": "SolveSphere AI",
+  "description": "A dual-purpose AI workspace designed for students and small business owners to tackle complex academic challenges and strategic operational hurdles with Google Gemini's advanced reasoning.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
