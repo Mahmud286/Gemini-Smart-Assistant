@@ -5,18 +5,19 @@ import {
   Store, 
   Send, 
   Sparkles, 
-  RefreshCw,
-  Search,
-  BrainCircuit,
-  Info,
-  Camera,
-  X,
-  ChevronRight,
-  Zap,
-  LayoutDashboard,
-  ShieldCheck,
-  User,
-  ArrowRight
+  RefreshCw, 
+  Search, 
+  BrainCircuit, 
+  Info, 
+  Camera, 
+  X, 
+  ChevronRight, 
+  Zap, 
+  LayoutDashboard, 
+  ShieldCheck, 
+  User, 
+  ArrowRight,
+  LogOut
 } from 'lucide-react';
 import { PROCESS_MODULES, ICON_MAP } from './constants';
 import { AppMode, SolutionResult, UserSession, ProcessModule } from './types';
@@ -25,7 +26,9 @@ import { geminiService } from './services/gemini';
 // --- Landing Page Component ---
 const LandingPage: React.FC<{ onEnter: (session: UserSession) => void }> = ({ onEnter }) => {
   const [name, setName] = useState('');
-  const [role, setRole] = useState<AppMode>('STUDENT');
+  const [role, setRole] = useState<AppMode | null>(null);
+
+  const isFormValid = name.trim().length > 0 && role !== null;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-blue-50 via-white to-slate-50">
@@ -33,7 +36,7 @@ const LandingPage: React.FC<{ onEnter: (session: UserSession) => void }> = ({ on
       <div className="flex-1 flex flex-col items-center justify-center p-6 lg:p-12">
         <div className="max-w-md w-full space-y-10 animate-in fade-in zoom-in duration-700">
           <div className="text-center space-y-4">
-            <div className="w-20 h-20 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-3xl mx-auto flex items-center justify-center text-white shadow-2xl shadow-blue-100 rotate-3">
+            <div className="w-20 h-20 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-3xl mx-auto flex items-center justify-center text-white shadow-2xl shadow-blue-100 rotate-3 transform transition-transform hover:rotate-6">
               <Sparkles size={40} />
             </div>
             <div className="space-y-1">
@@ -42,7 +45,7 @@ const LandingPage: React.FC<{ onEnter: (session: UserSession) => void }> = ({ on
             </div>
           </div>
 
-          <div className="bg-white p-8 lg:p-10 rounded-[2.5rem] shadow-2xl border border-slate-100 space-y-8">
+          <div className="bg-white p-8 lg:p-10 rounded-[2.5rem] shadow-2xl border border-slate-100 space-y-8 relative overflow-hidden">
             <div className="space-y-3">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] px-1">Identity Profile</label>
               <div className="relative">
@@ -62,44 +65,51 @@ const LandingPage: React.FC<{ onEnter: (session: UserSession) => void }> = ({ on
               <div className="grid grid-cols-2 gap-4">
                 <button 
                   onClick={() => setRole('STUDENT')}
-                  className={`p-5 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 ${role === 'STUDENT' ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-lg shadow-blue-100/50' : 'border-slate-100 bg-slate-50 text-slate-400 hover:border-slate-200'}`}
+                  className={`group p-5 rounded-2xl border-2 transition-all duration-300 flex flex-col items-center gap-3 hover:scale-[1.03] hover:shadow-xl ${role === 'STUDENT' ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-lg shadow-blue-100/50' : 'border-slate-100 bg-slate-50 text-slate-400 hover:border-slate-200'}`}
                 >
-                  <GraduationCap size={28} />
+                  <GraduationCap size={28} className={`transition-transform duration-300 ${role === 'STUDENT' ? 'scale-110' : 'group-hover:scale-110'}`} />
                   <span className="text-sm font-black uppercase tracking-wider">Student</span>
                 </button>
                 <button 
                   onClick={() => setRole('BUSINESS')}
-                  className={`p-5 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 ${role === 'BUSINESS' ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-lg shadow-indigo-100/50' : 'border-slate-100 bg-slate-50 text-slate-400 hover:border-slate-200'}`}
+                  className={`group p-5 rounded-2xl border-2 transition-all duration-300 flex flex-col items-center gap-3 hover:scale-[1.03] hover:shadow-xl ${role === 'BUSINESS' ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-lg shadow-indigo-100/50' : 'border-slate-100 bg-slate-50 text-slate-400 hover:border-slate-200'}`}
                 >
-                  <Store size={28} />
+                  <Store size={28} className={`transition-transform duration-300 ${role === 'BUSINESS' ? 'scale-110' : 'group-hover:scale-110'}`} />
                   <span className="text-sm font-black uppercase tracking-wider">Business</span>
                 </button>
               </div>
             </div>
 
             <button 
-              disabled={!name.trim()}
-              onClick={() => onEnter({ name, role })}
-              className="w-full h-16 bg-slate-900 text-white rounded-2xl font-black text-lg shadow-2xl shadow-slate-200 hover:bg-black transition-all disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-3 group"
+              disabled={!isFormValid}
+              onClick={() => role && onEnter({ name, role })}
+              className={`w-full h-16 rounded-2xl font-black text-lg transition-all duration-300 flex items-center justify-center gap-3 group relative overflow-hidden ${
+                isFormValid 
+                  ? 'bg-slate-900 text-white shadow-2xl shadow-blue-500/20 hover:bg-black active:scale-[0.98]' 
+                  : 'bg-slate-100 text-slate-300 cursor-not-allowed shadow-none'
+              }`}
             >
+              {isFormValid && (
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-600/0 via-white/5 to-blue-600/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
+              )}
               Enter the Sphere
-              <ArrowRight size={22} className="group-hover:translate-x-1 transition-transform" />
+              <ArrowRight size={22} className={`transition-transform duration-300 ${isFormValid ? 'group-hover:translate-x-1' : ''}`} />
             </button>
           </div>
         </div>
       </div>
 
       {/* Footer Area */}
-      <footer className="w-full py-10 px-6 text-center space-y-2 mt-auto">
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Built on Gemini 3 Reasoning Architecture</p>
-        <p className="text-[9px] font-bold text-slate-300 uppercase tracking-[0.2em]">&copy; {new Date().getFullYear()} DanMudi Digital Hub</p>
+      <footer className="w-full py-12 px-6 text-center space-y-3 mt-auto border-t border-slate-100 bg-white/30 backdrop-blur-sm">
+        <p className="text-[10px] lg:text-[11px] font-medium text-slate-400 uppercase tracking-[0.3em]">Built on Gemini 3 Reasoning Architecture</p>
+        <p className="text-[9px] font-normal text-slate-300 uppercase tracking-[0.15em]">&copy; {new Date().getFullYear()} DanMudi Digital Hub</p>
       </footer>
     </div>
   );
 };
 
 // --- Main Dashboard Component ---
-const Dashboard: React.FC<{ user: UserSession }> = ({ user }) => {
+const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user, onLogout }) => {
   const [activeModule, setActiveModule] = useState<ProcessModule>(PROCESS_MODULES.find(m => m.mode === user.role)!);
   const [input, setInput] = useState('');
   const [pendingImage, setPendingImage] = useState<string | null>(null);
@@ -107,6 +117,15 @@ const Dashboard: React.FC<{ user: UserSession }> = ({ user }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [useSearch, setUseSearch] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Logo navigation: Reset workspace state to "home" view without losing session
+  const handleHomeNavigation = () => {
+    setInput('');
+    setPendingImage(null);
+    setResult(null);
+    // Optionally reset to the first module of the user's role
+    setActiveModule(PROCESS_MODULES.find(m => m.mode === user.role)!);
+  };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -148,12 +167,16 @@ const Dashboard: React.FC<{ user: UserSession }> = ({ user }) => {
       {/* Top Header */}
       <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between z-50">
         <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2">
+          <button 
+            onClick={handleHomeNavigation}
+            className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+            title="Go to Home Dashboard"
+          >
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white">
               <Sparkles size={16} />
             </div>
             <h2 className="font-black text-slate-900 tracking-tight">SolveSphere</h2>
-          </div>
+          </button>
           <div className="h-6 w-px bg-slate-200" />
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200">
@@ -174,7 +197,14 @@ const Dashboard: React.FC<{ user: UserSession }> = ({ user }) => {
             <Search size={12} />
             GOOGLE SEARCH {useSearch ? 'ACTIVE' : 'OFF'}
           </button>
-          <button className="p-2 text-slate-400 hover:text-slate-600"><Info size={20} /></button>
+          <button 
+            onClick={onLogout}
+            className="flex items-center gap-2 p-2 px-3 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+            title="Logout / Change User"
+          >
+            <LogOut size={18} />
+            <span className="text-[10px] font-black uppercase">Exit</span>
+          </button>
         </div>
       </header>
 
@@ -224,7 +254,15 @@ const Dashboard: React.FC<{ user: UserSession }> = ({ user }) => {
             </div>
             <div className="flex-1 p-6 overflow-y-auto space-y-6">
               <div className="space-y-4">
-                <p className="text-sm font-bold text-slate-800">Problem Context</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-bold text-slate-800">Problem Context</p>
+                  <button 
+                    onClick={() => setInput('')}
+                    className="text-[10px] font-black text-slate-300 hover:text-slate-500 uppercase tracking-widest"
+                  >
+                    Clear Input
+                  </button>
+                </div>
                 <textarea 
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
@@ -370,5 +408,5 @@ export default function App() {
     return <LandingPage onEnter={setSession} />;
   }
 
-  return <Dashboard user={session} />;
+  return <Dashboard user={session} onLogout={() => setSession(null)} />;
 }
