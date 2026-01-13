@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
-import { Message, MessagePart } from "../types";
+import { SolutionResult } from "../types";
 
 export class GeminiService {
   private ai: GoogleGenAI;
@@ -9,61 +9,54 @@ export class GeminiService {
     this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
   }
 
-  async solveProblem(
-    toolPrompt: string, 
+  async processRequest(
+    modulePrompt: string, 
     userInput: string, 
     image?: string, 
     useSearch: boolean = false
-  ): Promise<Partial<Message>> {
+  ): Promise<SolutionResult> {
     try {
-      const modelName = useSearch ? 'gemini-3-pro-preview' : 'gemini-3-pro-preview'; // Prefer Pro for high-quality logic
+      const modelName = 'gemini-3-pro-preview';
       
-      const systemInstruction = `You are an elite reasoning engine for SolveSphere AI. 
-      Your goal is to solve problems using a "First Principles" approach.
-      ALWAYS break your answer into the following sections:
-      1. **Analysis**: Briefly describe your understanding of the core problem.
-      2. **Logical Steps**: Provide a numbered, step-by-step breakdown of the solution.
-      3. **The Solution**: The final definitive answer or output.
-      4. **Recommendations**: Strategic advice for the student or business owner.
-      
-      Maintain a professional, encouraging, and highly structured tone.`;
-
-      const parts: any[] = [{ text: `${toolPrompt}\n\nUser Input: ${userInput}` }];
-      
-      if (image) {
-        const [mime, data] = image.split(',');
-        const mimeType = mime.match(/:(.*?);/)?.[1] || 'image/png';
-        parts.push({
-          inlineData: {
-            mimeType,
-            data: data || image
-          }
-        });
-      }
-
-      const response: GenerateContentResponse = await this.ai.models.generateContent({
+      const response = await this.ai.models.generateContent({
         model: modelName,
-        contents: [{ role: 'user', parts }],
+        contents: [{ 
+          role: 'user', 
+          parts: [
+            { text: `Instruction: ${modulePrompt}\nInput: ${userInput}` },
+            ...(image ? [{ inlineData: { mimeType: 'image/png', data: image.split(',')[1] || image } }] : [])
+          ] 
+        }],
         config: {
-          systemInstruction,
-          temperature: 0.4, // Lower temperature for more consistent reasoning
-          thinkingConfig: { thinkingBudget: 32768 },
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              analysis: { type: Type.STRING, description: "Problem audit and understanding." },
+              steps: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Numbered logical steps." },
+              solution: { type: Type.STRING, description: "The core output." },
+              recommendations: { type: Type.STRING, description: "Forward-looking strategic advice." }
+            },
+            required: ["analysis", "steps", "solution", "recommendations"]
+          },
+          temperature: 0.2,
+          thinkingConfig: { thinkingBudget: 16000 },
           tools: useSearch ? [{ googleSearch: {} }] : undefined
         }
       });
 
-      const text = response.text || "I processed your request but couldn't generate a text response.";
+      const result = JSON.parse(response.text);
       const groundingLinks = response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((chunk: any) => ({
         uri: chunk.web?.uri || '',
         title: chunk.web?.title || 'Resource'
       })).filter((l: any) => l.uri !== '') || [];
 
       return {
-        content: text,
-        groundingLinks
+        ...result,
+        links: groundingLinks
       };
     } catch (error) {
-      console.error("Gemini Reasoning Error:", error);
+      console.error("Gemini Engine Error:", error);
       throw error;
     }
   }
@@ -73,7 +66,7 @@ export class GeminiService {
       const response = await this.ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: {
-          parts: [{ text: `High quality, clean, professional diagram or visual for: ${prompt}. Context: ${context}` }],
+          parts: [{ text: `Professional, clean, high-resolution product visual: ${prompt}. Context: ${context}` }],
         },
         config: {
           imageConfig: { aspectRatio: "1:1" }
@@ -85,7 +78,7 @@ export class GeminiService {
           return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
         }
       }
-      throw new Error("No image data in response");
+      throw new Error("Visual generation failed");
     } catch (error) {
       console.error("Gemini Visual Error:", error);
       throw error;

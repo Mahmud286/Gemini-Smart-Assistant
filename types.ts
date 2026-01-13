@@ -1,32 +1,26 @@
 
 export type AppMode = 'STUDENT' | 'BUSINESS';
 
-export interface MessagePart {
-  text?: string;
-  image?: string; // base64 data URL
+export interface UserSession {
+  name: string;
+  role: AppMode;
 }
 
-export interface Message {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string; // fallback/primary text
-  parts?: MessagePart[]; 
-  timestamp: number;
-  thinking?: string;
-  groundingLinks?: Array<{ uri: string; title: string }>;
+export interface SolutionResult {
+  analysis: string;
+  steps: string[];
+  solution: string;
+  recommendations: string;
+  visual?: string;
+  links?: Array<{ uri: string; title: string }>;
 }
 
-export interface Tool {
+export interface ProcessModule {
   id: string;
   title: string;
   description: string;
   icon: string;
   prompt: string;
   mode: AppMode;
-  type?: 'text' | 'image';
-}
-
-export interface ChartData {
-  name: string;
-  value: number;
+  type?: 'text' | 'visual';
 }

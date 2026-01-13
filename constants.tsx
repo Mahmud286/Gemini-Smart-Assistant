@@ -1,87 +1,87 @@
 
 import React from 'react';
 import { 
-  BookOpen, 
-  Briefcase, 
   Calculator, 
   PenTool, 
-  Search, 
   TrendingUp, 
   Users, 
-  FileText,
   Lightbulb,
   Target,
   Image as ImageIcon,
+  BookOpen,
+  Briefcase,
+  Search,
+  FileText,
   Layers
 } from 'lucide-react';
-import { Tool } from './types';
+import { ProcessModule } from './types';
 
-export const TOOLS: Tool[] = [
-  // Student Tools
+export const PROCESS_MODULES: ProcessModule[] = [
+  // Student Modules
   {
-    id: 'math-solver',
-    title: 'Math & Science Solver',
-    description: 'Step-by-step solutions for equations and scientific concepts.',
+    id: 'academic-solver',
+    title: 'Core Solution Engine',
+    description: 'First-principles logic for STEM and complex humanities.',
     icon: 'Calculator',
-    prompt: 'You are an elite tutor. Solve the following problem step-by-step. If an image is provided, analyze it first.',
+    prompt: 'Solve the following academic challenge using rigorous first-principles logic.',
     mode: 'STUDENT'
   },
   {
-    id: 'study-diagram',
-    title: 'Diagram Creator',
-    description: 'Generate educational diagrams and visual study aids.',
+    id: 'structural-planner',
+    title: 'Structural Planner',
+    description: 'Detailed hierarchies for papers and research projects.',
+    icon: 'Layers',
+    prompt: 'Architect a high-level structure for this project, defining all key hierarchies and arguments.',
+    mode: 'STUDENT'
+  },
+  {
+    id: 'concept-visualizer',
+    title: 'Concept Visualizer',
+    description: 'Generates mental models and visual study aids.',
     icon: 'ImageIcon',
-    prompt: 'Create a clear, educational diagram or visual representation of the following concept.',
+    prompt: 'Create a high-fidelity visual mental model for this concept.',
     mode: 'STUDENT',
-    type: 'image'
+    type: 'visual'
   },
+  // Business Modules
   {
-    id: 'essay-outline',
-    title: 'Essay Architect',
-    description: 'Generate structured outlines and thesis statements.',
-    icon: 'PenTool',
-    prompt: 'Create a comprehensive essay outline including a strong thesis and key arguments.',
-    mode: 'STUDENT'
-  },
-  // Business Tools
-  {
-    id: 'brand-visualizer',
-    title: 'Brand Visualizer',
-    description: 'Generate logos, mockups, and visual brand assets.',
-    icon: 'ImageIcon',
-    prompt: 'Generate a professional brand asset or mockup based on these business requirements.',
-    mode: 'BUSINESS',
-    type: 'image'
-  },
-  {
-    id: 'marketing-strategy',
-    title: 'Marketing Strategy',
-    description: 'Develop multi-channel marketing plans.',
+    id: 'market-strategist',
+    title: 'Market Strategist',
+    description: 'Operational growth and competitive positioning.',
     icon: 'Target',
-    prompt: 'Create a 3-month growth plan including digital channels and local engagement.',
+    prompt: 'Formulate a robust market entry and growth strategy based on these variables.',
     mode: 'BUSINESS'
   },
   {
-    id: 'swot-analysis',
-    title: 'SWOT Analysis',
-    description: 'Identify strengths, weaknesses, opportunities, and threats.',
+    id: 'audit-engine',
+    title: 'Risk & SWOT Audit',
+    description: 'Systematic identification of internal and external factors.',
     icon: 'TrendingUp',
-    prompt: 'Perform a detailed SWOT analysis for this business idea.',
+    prompt: 'Perform a comprehensive risk assessment and SWOT audit.',
     mode: 'BUSINESS'
+  },
+  {
+    id: 'brand-architect',
+    title: 'Brand Architect',
+    description: 'Visual identity and brand positioning assets.',
+    icon: 'ImageIcon',
+    prompt: 'Design a visual brand concept including core identity elements.',
+    mode: 'BUSINESS',
+    type: 'visual'
   }
 ];
 
 export const ICON_MAP: Record<string, React.ReactNode> = {
-  Calculator: <Calculator className="w-5 h-5" />,
-  PenTool: <PenTool className="w-5 h-5" />,
-  Lightbulb: <Lightbulb className="w-5 h-5" />,
-  Target: <Target className="w-5 h-5" />,
-  TrendingUp: <TrendingUp className="w-5 h-5" />,
-  Users: <Users className="w-5 h-5" />,
-  Briefcase: <Briefcase className="w-5 h-5" />,
-  BookOpen: <BookOpen className="w-5 h-5" />,
-  Search: <Search className="w-5 h-5" />,
-  FileText: <FileText className="w-5 h-5" />,
-  ImageIcon: <ImageIcon className="w-5 h-5" />,
-  Layers: <Layers className="w-5 h-5" />
+  Calculator: <Calculator size={18} />,
+  PenTool: <PenTool size={18} />,
+  Lightbulb: <Lightbulb size={18} />,
+  Target: <Target size={18} />,
+  TrendingUp: <TrendingUp size={18} />,
+  Users: <Users size={18} />,
+  Briefcase: <Briefcase size={18} />,
+  BookOpen: <BookOpen size={18} />,
+  Search: <Search size={18} />,
+  FileText: <FileText size={18} />,
+  ImageIcon: <ImageIcon size={18} />,
+  Layers: <Layers size={18} />
 };
