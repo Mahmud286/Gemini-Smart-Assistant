@@ -23,4 +23,5 @@ export interface ProcessModule {
   prompt: string;
   mode: AppMode;
   type?: 'text' | 'visual';
+  placeholder?: string;
 }
