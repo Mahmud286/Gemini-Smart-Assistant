@@ -42,8 +42,6 @@ export class GeminiService {
     signal?: AbortSignal
   ): Promise<SolutionResult> {
     try {
-      // Note: The SDK itself might not fully support AbortSignal in all environments, 
-      // but we wrap the call to handle the abort state gracefully in the UI.
       const response = await this.ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         contents: [{ 
@@ -61,9 +59,10 @@ export class GeminiService {
               analysis: { type: Type.STRING, description: "Problem audit and understanding." },
               steps: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Numbered logical steps." },
               solution: { type: Type.STRING, description: "The core output." },
-              recommendations: { type: Type.STRING, description: "Forward-looking strategic advice." }
+              recommendations: { type: Type.STRING, description: "Forward-looking strategic advice." },
+              diagramDescription: { type: Type.STRING, description: "A detailed description for generating a schematic, non-realistic diagram, technical blueprint, or flowchart of the solution logic." }
             },
-            required: ["analysis", "steps", "solution", "recommendations"]
+            required: ["analysis", "steps", "solution", "recommendations", "diagramDescription"]
           },
           temperature: 0.2,
           thinkingConfig: { thinkingBudget: 16000 },
@@ -92,10 +91,13 @@ export class GeminiService {
 
   async generateVisual(prompt: string, context: string, signal?: AbortSignal): Promise<string> {
     try {
+      // Strictly enforcing a non-realistic, schematic style
+      const technicalPrompt = `Professional schematic 2D diagram. Style: Flat vector illustration, minimal technical design, clean lines, no realism, no 3D shading, blueprint aesthetic, schematic flowchart style. Subject: ${prompt}. Context: ${context}`;
+      
       const response = await this.ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: {
-          parts: [{ text: `Professional, clean, high-resolution product visual: ${prompt}. Context: ${context}` }],
+          parts: [{ text: technicalPrompt }],
         },
         config: {
           imageConfig: { aspectRatio: "1:1" }
