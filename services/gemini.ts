@@ -12,6 +12,9 @@ export class GeminiService {
   private handleError(error: any): never {
     const errorString = String(error?.message || error).toLowerCase();
     
+    if (errorString.includes("aborted") || errorString.includes("cancelled")) {
+      throw new Error("Synthesis cancelled by user.");
+    }
     if (errorString.includes("429") || errorString.includes("quota")) {
       throw new Error("AI synthesis limit reached. Please wait a few moments before trying again.");
     }
@@ -27,9 +30,6 @@ export class GeminiService {
     if (errorString.includes("network") || errorString.includes("fetch") || errorString.includes("offline")) {
       throw new Error("Network connection error. Please check your internet connectivity.");
     }
-    if (errorString.includes("aborted")) {
-      throw new Error("Synthesis cancelled by user.");
-    }
     
     throw new Error("An unexpected error occurred during synthesis. Please refine your request.");
   }
@@ -42,6 +42,8 @@ export class GeminiService {
     signal?: AbortSignal
   ): Promise<SolutionResult> {
     try {
+      if (signal?.aborted) throw new Error("aborted");
+
       const response = await this.ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         contents: [{ 
@@ -52,17 +54,31 @@ export class GeminiService {
           ] 
         }],
         config: {
+          systemInstruction: "You are the SolveSphere Intelligence Engine. Your primary goal is to provide accurate, high-fidelity solutions for students and business owners. IMPORTANT: If the user's input contains spelling mistakes, typos, or nonsensical words, you must use your advanced linguistic capabilities to infer the intended meaning, correct the errors internally, and provide the correct answer or strategy. Never criticize or explicitly correct the user's spelling; simply deliver the intelligence they intended to request as if the input were perfectly written.",
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              analysis: { type: Type.STRING, description: "Problem audit and understanding." },
-              steps: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Numbered logical steps." },
-              solution: { type: Type.STRING, description: "The core output." },
+              analysis: { type: Type.STRING, description: "Problem audit and understanding. Mentally correct user spelling errors here." },
+              steps: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Numbered logical steps leading to the correct solution." },
+              solution: { type: Type.STRING, description: "The core correct output, ignoring any typos in the original input." },
               recommendations: { type: Type.STRING, description: "Forward-looking strategic advice." },
-              diagramDescription: { type: Type.STRING, description: "A detailed description for generating a schematic, non-realistic diagram, technical blueprint, or flowchart of the solution logic." }
+              diagramDescription: { type: Type.STRING, description: "A detailed description for generating a schematic, non-realistic diagram, technical blueprint, or flowchart of the solution logic." },
+              realisticDiagramDescription: { type: Type.STRING, description: "A vivid, detailed description of a realistic, real-world scene or high-fidelity simulation representing the solution in practice." },
+              diagramNodes: {
+                type: Type.ARRAY,
+                description: "A list of key nodes or sections within the schematic diagram to explain to the user.",
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    label: { type: Type.STRING, description: "Short name of the node or section." },
+                    description: { type: Type.STRING, description: "Detailed explanation of this component's role in the logic." }
+                  },
+                  required: ["label", "description"]
+                }
+              }
             },
-            required: ["analysis", "steps", "solution", "recommendations", "diagramDescription"]
+            required: ["analysis", "steps", "solution", "recommendations", "diagramDescription", "realisticDiagramDescription", "diagramNodes"]
           },
           temperature: 0.2,
           thinkingConfig: { thinkingBudget: 16000 },
@@ -83,16 +99,22 @@ export class GeminiService {
         ...result,
         links: groundingLinks
       };
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.message === "aborted" || signal?.aborted) {
+        throw new Error("Synthesis cancelled by user.");
+      }
       console.error("Gemini Engine Error:", error);
       return this.handleError(error);
     }
   }
 
-  async generateVisual(prompt: string, context: string, signal?: AbortSignal): Promise<string> {
+  async generateVisual(prompt: string, context: string, isRealistic: boolean = false, signal?: AbortSignal): Promise<string> {
     try {
-      // Strictly enforcing a non-realistic, schematic style
-      const technicalPrompt = `Professional schematic 2D diagram. Style: Flat vector illustration, minimal technical design, clean lines, no realism, no 3D shading, blueprint aesthetic, schematic flowchart style. Subject: ${prompt}. Context: ${context}`;
+      if (signal?.aborted) throw new Error("aborted");
+
+      const technicalPrompt = isRealistic 
+        ? `Cinematic, photorealistic high-fidelity 3D simulation scene. Style: Professional photography, 8k resolution, detailed textures, realistic lighting and shadows, real-world environment. Subject: ${prompt}. Context: ${context}`
+        : `Professional schematic 2D diagram. Style: Flat vector illustration, minimal technical design, clean lines, no realism, no 3D shading, blueprint aesthetic, schematic flowchart style. Subject: ${prompt}. Context: ${context}`;
       
       const response = await this.ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
@@ -100,7 +122,7 @@ export class GeminiService {
           parts: [{ text: technicalPrompt }],
         },
         config: {
-          imageConfig: { aspectRatio: "1:1" }
+          imageConfig: { aspectRatio: "16:9" }
         }
       });
 
@@ -112,7 +134,10 @@ export class GeminiService {
         }
       }
       throw new Error("Visual generation failed - No image data returned");
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.message === "aborted" || signal?.aborted) {
+        throw new Error("Synthesis cancelled by user.");
+      }
       console.error("Gemini Visual Error:", error);
       return this.handleError(error);
     }

@@ -42,14 +42,22 @@ import {
   Cpu,
   Trello,
   Loader2,
-  Download
+  Download,
+  Crosshair,
+  Maximize2,
+  Calendar,
+  ChevronRight as ChevronRightIcon,
+  SearchCode,
+  ZapOff,
+  Dna,
+  Eye
 } from 'lucide-react';
 import { PROCESS_MODULES, ICON_MAP } from './constants';
 import { AppMode, SolutionResult, UserSession, ProcessModule, HistoryItem } from './types';
 import { geminiService } from './services/gemini';
 
 type ViewMode = 'INPUT' | 'PROCESSING' | 'RESULT' | 'HISTORY';
-type ResultTab = 'AUDIT' | 'SOLUTION' | 'DIAGRAM';
+type ResultTab = 'AUDIT' | 'SOLUTION' | 'DIAGRAM' | 'SIMULATION';
 
 // --- Landing Page Component ---
 const LandingPage: React.FC<{ onEnter: (session: UserSession) => void }> = ({ onEnter }) => {
@@ -143,6 +151,7 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
   const [activeResultTab, setActiveResultTab] = useState<ResultTab>('AUDIT');
   const [isLoading, setIsLoading] = useState(false);
   const [isDiagramLoading, setIsDiagramLoading] = useState(false);
+  const [isSimulationLoading, setIsSimulationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [useSearch, setUseSearch] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -151,6 +160,8 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [copied, setCopied] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
   
   const abortControllerRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -214,6 +225,7 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
     setError(null);
     setViewMode('INPUT');
     setActiveModule(PROCESS_MODULES.find(m => m.mode === user.role)!);
+    setSelectedNode(null);
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -232,6 +244,7 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
     }
     setIsLoading(false);
     setIsDiagramLoading(false);
+    setIsSimulationLoading(false);
     setViewMode('INPUT');
     setError(null);
   };
@@ -258,7 +271,9 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
     setError(null);
     setIsQuestionExpanded(false);
     setActiveResultTab('AUDIT');
+    setSelectedNode(null);
     
+    if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
 
     try {
@@ -266,7 +281,7 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
       finalResult = await geminiService.processRequest(targetModule.prompt, input, pendingImage || undefined, useSearch, abortControllerRef.current.signal);
       
       if (targetModule.type === 'visual') {
-        const visual = await geminiService.generateVisual(finalResult.diagramDescription, input, abortControllerRef.current.signal);
+        const visual = await geminiService.generateVisual(finalResult.diagramDescription, input, false, abortControllerRef.current.signal);
         finalResult.visual = visual;
         setActiveResultTab('DIAGRAM');
       }
@@ -276,7 +291,8 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
       setProgress(100);
       setViewMode('RESULT');
     } catch (err: any) {
-      if (err?.message === "aborted" || err?.message === "Synthesis cancelled by user.") return;
+      const msg = String(err?.message || "").toLowerCase();
+      if (msg.includes("cancelled") || msg.includes("aborted")) return;
       setError(err?.message || "Synthesis failure. Please try again.");
     } finally {
       setIsLoading(false);
@@ -286,16 +302,12 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
 
   const triggerDiagramSynthesis = async () => {
     if (!result || isDiagramLoading || result.visual) return;
-    
     setIsDiagramLoading(true);
     try {
-      const visual = await geminiService.generateVisual(result.diagramDescription, input);
-      setResult({ ...result, visual });
-      setHistory(prev => prev.map(item => 
-        item.input === input && item.moduleId === activeModule.id 
-        ? { ...item, result: { ...item.result, visual } } 
-        : item
-      ));
+      const visual = await geminiService.generateVisual(result.diagramDescription, input, false);
+      const updatedResult = { ...result, visual };
+      setResult(updatedResult);
+      updateHistoryItem(updatedResult);
     } catch (err) {
       console.error("Diagram synthesis failed", err);
     } finally {
@@ -303,17 +315,36 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
     }
   };
 
+  const triggerSimulationSynthesis = async () => {
+    if (!result || isSimulationLoading || result.realisticVisual) return;
+    setIsSimulationLoading(true);
+    try {
+      const realisticVisual = await geminiService.generateVisual(result.realisticDiagramDescription, input, true);
+      const updatedResult = { ...result, realisticVisual };
+      setResult(updatedResult);
+      updateHistoryItem(updatedResult);
+    } catch (err) {
+      console.error("Simulation synthesis failed", err);
+    } finally {
+      setIsSimulationLoading(false);
+    }
+  };
+
+  const updateHistoryItem = (updatedResult: SolutionResult) => {
+    setHistory(prev => prev.map(item => 
+      item.input === input && item.moduleId === activeModule.id 
+      ? { ...item, result: updatedResult } 
+      : item
+    ));
+  };
+
   const handleTabSwitch = (tab: ResultTab) => {
     setActiveResultTab(tab);
     if (tab === 'DIAGRAM' && result && !result.visual && !isDiagramLoading) {
       triggerDiagramSynthesis();
+    } else if (tab === 'SIMULATION' && result && !result.realisticVisual && !isSimulationLoading) {
+      triggerSimulationSynthesis();
     }
-  };
-
-  const handleSwitchModule = (newModule: ProcessModule) => {
-    if (newModule.id === activeModule.id) return;
-    setActiveModule(newModule);
-    handleExecute(newModule);
   };
 
   const handleEditInput = () => {
@@ -329,6 +360,7 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
     setResult(item.result);
     setViewMode('RESULT');
     setActiveResultTab(item.result.visual ? 'DIAGRAM' : 'AUDIT');
+    setSelectedNode(null);
   };
 
   const clearHistory = () => {
@@ -377,13 +409,16 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
     window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(window.location.href)}`, '_blank');
   };
 
-  const downloadDiagram = () => {
-    if (!result?.visual) return;
+  const downloadDiagram = (isRealistic: boolean = false) => {
+    const uri = isRealistic ? result?.realisticVisual : result?.visual;
+    if (!uri) return;
     const link = document.createElement('a');
-    link.href = result.visual;
-    link.download = `solvesphere-diagram-${Date.now()}.png`;
+    link.href = uri;
+    link.download = `solvesphere-${isRealistic ? 'simulation' : 'diagram'}-${Date.now()}.png`;
     link.click();
   };
+
+  const selectedNodeData = result?.diagramNodes?.find(n => n.label === selectedNode);
 
   return (
     <div className="h-screen bg-white flex flex-col overflow-hidden font-sans text-slate-900 text-left">
@@ -633,6 +668,12 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
                       >
                         Diagram
                       </button>
+                      <button 
+                        onClick={() => handleTabSwitch('SIMULATION')}
+                        className={`flex-1 py-1.5 text-[9px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${activeResultTab === 'SIMULATION' ? 'bg-white text-slate-900 shadow-sm border border-slate-100' : 'text-slate-400 hover:text-slate-600'}`}
+                      >
+                        Simulation
+                      </button>
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -739,8 +780,8 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
                   )}
 
                   {activeResultTab === 'DIAGRAM' && (
-                    <div className="space-y-12 animate-in fade-in duration-500 text-center">
-                      <div className="flex flex-col items-center gap-4 mb-10 text-center">
+                    <div className="space-y-16 animate-in fade-in duration-500">
+                      <div className="flex flex-col items-center gap-4 text-center">
                         <div className="w-12 h-12 rounded-2xl bg-slate-50 border border-slate-100 text-slate-900 flex items-center justify-center">
                           <Trello size={24} />
                         </div>
@@ -755,10 +796,86 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
                           </div>
                         </div>
                       ) : result?.visual ? (
-                        <div className="relative group overflow-hidden rounded-[4rem] bg-slate-50 shadow-2xl border border-slate-100 p-4 sm:p-12 text-center">
-                          <img src={result.visual} className="w-full h-auto max-h-[700px] object-contain transition-all duration-1000 group-hover:scale-[1.02] rounded-[2rem] mx-auto mix-blend-multiply" alt="Schematic Diagram" />
-                          <div className="absolute top-10 right-10 flex gap-2">
-                             <button onClick={downloadDiagram} className="p-4 bg-white/80 backdrop-blur-md text-slate-900 rounded-2xl border border-slate-200 hover:bg-slate-900 hover:text-white transition-all shadow-xl"><Download size={20} /></button>
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-12 items-start">
+                          <div className="lg:col-span-2 space-y-8">
+                            <div className="relative group overflow-hidden rounded-[3rem] bg-gradient-to-br from-slate-50 via-white to-blue-50/30 shadow-2xl border border-slate-100 p-4 sm:p-8">
+                              <img src={result.visual} className="w-full h-auto max-h-[700px] object-contain transition-all duration-1000 group-hover:scale-[1.02] rounded-[1.5rem] mx-auto mix-blend-multiply" alt="Schematic Diagram" />
+                              <div className="absolute top-8 right-8 flex gap-2">
+                                <button onClick={() => downloadDiagram(false)} className="p-4 bg-white/80 backdrop-blur-md text-slate-900 rounded-2xl border border-slate-200 hover:bg-slate-900 hover:text-white transition-all shadow-xl"><Download size={20} /></button>
+                              </div>
+                              {/* Hover Tooltip Overlay (Central) */}
+                              {hoveredNode && !selectedNode && (
+                                <div className="absolute inset-0 bg-white/40 backdrop-blur-[2px] flex items-center justify-center p-8 animate-in fade-in zoom-in duration-300 pointer-events-none">
+                                  <div className="bg-white p-6 rounded-3xl shadow-2xl border border-slate-100 max-w-xs text-center space-y-2">
+                                    <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">{result.diagramNodes?.find(n => n.label === hoveredNode)?.label}</p>
+                                    <p className="text-xs text-slate-600 font-medium leading-relaxed">{result.diagramNodes?.find(n => n.label === hoveredNode)?.description}</p>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            
+                            {/* Persistent Logic Inspector */}
+                            <div className={`transition-all duration-500 transform ${selectedNode ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0 pointer-events-none'}`}>
+                              <div className="p-8 sm:p-10 rounded-[2.5rem] bg-slate-900 text-white shadow-2xl space-y-4 relative overflow-hidden group">
+                                <div className="absolute -right-8 -top-8 w-32 h-32 bg-blue-500/10 blur-[60px] rounded-full group-hover:bg-blue-500/20 transition-all duration-700" />
+                                <div className="flex items-center justify-between mb-4">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-lg">
+                                      <SearchCode size={18} />
+                                    </div>
+                                    <h5 className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-400">Component Analysis</h5>
+                                  </div>
+                                  <button onClick={() => setSelectedNode(null)} className="p-2 text-slate-400 hover:text-white transition-colors">
+                                    <X size={20} />
+                                  </button>
+                                </div>
+                                <h3 className="text-2xl font-black tracking-tight">{selectedNodeData?.label}</h3>
+                                <p className="text-slate-400 text-sm sm:text-base leading-relaxed font-medium">
+                                  {selectedNodeData?.description}
+                                </p>
+                              </div>
+                            </div>
+
+                            {!selectedNode && (
+                              <div className="flex items-center gap-3 px-2 text-slate-400 animate-pulse">
+                                <Crosshair size={14} />
+                                <p className="text-[10px] font-bold uppercase tracking-widest">Select a component for deep analysis</p>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="space-y-8">
+                            <div className="flex items-center gap-3 px-2">
+                               <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Blueprint Guide</h5>
+                            </div>
+                            <div className="space-y-3">
+                              {result.diagramNodes?.map((node, i) => (
+                                <button 
+                                  key={i}
+                                  onMouseEnter={() => setHoveredNode(node.label)}
+                                  onMouseLeave={() => setHoveredNode(null)}
+                                  onClick={() => setSelectedNode(selectedNode === node.label ? null : node.label)}
+                                  className={`w-full p-5 rounded-2xl border transition-all text-left group ${selectedNode === node.label ? 'bg-blue-600 border-blue-600 text-white shadow-xl scale-[1.02]' : hoveredNode === node.label ? 'bg-slate-900 border-slate-900 text-white shadow-lg' : 'bg-white border-slate-100 text-slate-900 hover:border-slate-300'}`}
+                                >
+                                  <div className="flex items-center justify-between mb-2">
+                                    <span className={`text-[10px] font-black uppercase tracking-widest ${selectedNode === node.label ? 'text-blue-100' : 'text-inherit opacity-70 group-hover:opacity-100'}`}>{node.label}</span>
+                                    <div className={`w-2.5 h-2.5 rounded-full transition-all ${selectedNode === node.label ? 'bg-white animate-ping' : hoveredNode === node.label ? 'bg-blue-400' : 'bg-slate-100 group-hover:bg-slate-200'}`} />
+                                  </div>
+                                  <p className={`text-xs leading-relaxed font-medium transition-colors ${selectedNode === node.label ? 'text-blue-100/90' : hoveredNode === node.label ? 'text-slate-400' : 'text-slate-500'}`}>
+                                    {node.description.slice(0, 60)}...
+                                  </p>
+                                </button>
+                              ))}
+                            </div>
+                            <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 space-y-4">
+                               <div className="flex items-center gap-2 text-slate-400">
+                                 <Dna size={14} />
+                                 <p className="text-[10px] font-black uppercase tracking-widest">Guide Logic</p>
+                               </div>
+                               <p className="text-[11px] text-slate-500 leading-relaxed font-medium">
+                                 Click on components in this guide to lock them in the <b>Logic Inspector</b> for persistent reference.
+                               </p>
+                            </div>
                           </div>
                         </div>
                       ) : (
@@ -766,9 +883,71 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
                            <ImageIcon size={48} className="text-slate-300" />
                            <div className="space-y-3">
                              <h5 className="text-xl font-bold text-slate-600">Render Logic Map</h5>
-                             <p className="text-sm text-slate-400 max-w-sm mx-auto">Generate a schematic vector-style diagram to visualize the conceptual logic.</p>
+                             <p className="text-sm text-slate-400 max-w-sm mx-auto">Generate a schematic vector-style diagram with interactive tooltips and component inspector.</p>
                            </div>
                            <button onClick={triggerDiagramSynthesis} className="px-8 py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl">Trigger Schematic Render</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {activeResultTab === 'SIMULATION' && (
+                    <div className="space-y-16 animate-in fade-in duration-500">
+                      <div className="flex flex-col items-center gap-4 text-center">
+                        <div className="w-12 h-12 rounded-2xl bg-slate-50 border border-slate-100 text-slate-900 flex items-center justify-center">
+                          <Eye size={24} />
+                        </div>
+                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.5em]">Section 04 / Realistic Simulation</h4>
+                      </div>
+
+                      {isSimulationLoading ? (
+                        <div className="py-32 flex flex-col items-center justify-center gap-6 animate-pulse text-center">
+                          <Loader2 size={48} className="text-slate-900 animate-spin" />
+                          <div className="space-y-2">
+                             <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Generating High-Fidelity Simulation...</p>
+                          </div>
+                        </div>
+                      ) : result?.realisticVisual ? (
+                        <div className="space-y-12">
+                          <div className="relative group overflow-hidden rounded-[3rem] bg-slate-900 shadow-2xl border border-slate-800 aspect-video flex items-center justify-center">
+                            <img src={result.realisticVisual} className="w-full h-full object-cover transition-all duration-1000 group-hover:scale-[1.05]" alt="Realistic Simulation" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                            <div className="absolute top-8 right-8 flex gap-2">
+                              <button onClick={() => downloadDiagram(true)} className="p-4 bg-white/10 backdrop-blur-md text-white rounded-2xl border border-white/20 hover:bg-white hover:text-slate-900 transition-all shadow-xl"><Download size={20} /></button>
+                            </div>
+                            <div className="absolute bottom-8 left-8 right-8 text-white opacity-0 group-hover:opacity-100 transition-all duration-500 transform translate-y-4 group-hover:translate-y-0">
+                               <p className="text-sm font-medium leading-relaxed max-w-2xl bg-black/40 backdrop-blur-md p-6 rounded-3xl border border-white/10">
+                                 {result.realisticDiagramDescription}
+                               </p>
+                            </div>
+                          </div>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                             <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100 space-y-4">
+                                <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-slate-900 border border-slate-100"><Sparkles size={20}/></div>
+                                <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Visual Context</h5>
+                                <p className="text-sm text-slate-600 font-medium leading-relaxed">This simulation visualizes the theoretical solution in a high-fidelity real-world context for better spatial and environmental understanding.</p>
+                             </div>
+                             <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100 space-y-4">
+                                <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-slate-900 border border-slate-100"><Cpu size={20}/></div>
+                                <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Rendering Engine</h5>
+                                <p className="text-sm text-slate-600 font-medium leading-relaxed">Synthesized using Gemini 2.5 Flash Image architecture with neural photorealism prompts derived from core analysis.</p>
+                             </div>
+                             <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100 space-y-4">
+                                <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-slate-900 border border-slate-100"><Eye size={20}/></div>
+                                <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Perspective Mode</h5>
+                                <p className="text-sm text-slate-600 font-medium leading-relaxed">Switch between <b>Schematic</b> for logic and <b>Simulation</b> for practical real-world manifestation.</p>
+                             </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="py-20 sm:py-32 flex flex-col items-center justify-center gap-8 bg-slate-50 border-2 border-dashed border-slate-200 rounded-[4rem] text-center">
+                           <Eye size={48} className="text-slate-300" />
+                           <div className="space-y-3">
+                             <h5 className="text-xl font-bold text-slate-600">Synthesize Simulation</h5>
+                             <p className="text-sm text-slate-400 max-w-sm mx-auto">Generate a photorealistic simulation showing how this solution operates in the real world.</p>
+                           </div>
+                           <button onClick={triggerSimulationSynthesis} className="px-8 py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl">Start Rendering</button>
                         </div>
                       )}
                     </div>
@@ -797,33 +976,81 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
 
           {/* History Page */}
           <div className={`absolute inset-0 flex flex-col transition-all duration-700 ease-in-out ${viewMode === 'HISTORY' ? 'translate-y-0 opacity-100 z-50' : 'translate-y-full opacity-0 z-0'}`}>
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between flex-shrink-0 bg-white/80 backdrop-blur-3xl">
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between flex-shrink-0 bg-white/80 backdrop-blur-3xl z-[100]">
                 <div className="flex items-center gap-4 text-left">
                   <button onClick={() => setViewMode('INPUT')} className="p-2 hover:bg-slate-50 rounded-full transition-colors text-left"><ChevronLeft size={20} /></button>
-                  <h3 className="font-black text-slate-900 uppercase text-xs tracking-[0.3em]">Neural History</h3>
+                  <div className="text-left">
+                    <h3 className="font-black text-slate-900 uppercase text-xs tracking-[0.3em]">Logic Repository</h3>
+                    <p className="text-[10px] text-slate-400 font-medium uppercase tracking-widest mt-0.5">{history.length} archived syntheses</p>
+                  </div>
                 </div>
-                {history.length > 0 && <button onClick={clearHistory} className="text-[10px] font-black text-red-500 hover:text-red-600 uppercase tracking-widest flex items-center gap-2"><Trash2 size={12} /> Clear Memory</button>}
+                {history.length > 0 && <button onClick={clearHistory} className="px-4 py-2 text-[10px] font-black text-red-500 hover:bg-red-50 rounded-xl uppercase tracking-widest flex items-center gap-2 transition-all"><Trash2 size={12} /> Clear Memory</button>}
               </div>
-              <div className="flex-1 p-6 sm:p-12 overflow-y-auto bg-slate-50/30">
-                <div className="max-w-4xl mx-auto w-full space-y-6">
+              <div className="flex-1 p-6 sm:p-12 overflow-y-auto bg-slate-50/50">
+                <div className="max-w-5xl mx-auto w-full">
                   {history.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-32 text-center space-y-8 animate-in fade-in duration-700">
-                      <History size={48} className="text-slate-200" />
-                      <div className="space-y-2"><p className="text-xl font-bold text-slate-400">Neural Memory Clear</p></div>
-                      <button onClick={() => setViewMode('INPUT')} className="px-10 py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl">Synthesize Logic</button>
+                    <div className="flex flex-col items-center justify-center py-40 text-center space-y-8 animate-in fade-in zoom-in duration-700">
+                      <div className="w-24 h-24 bg-white rounded-[2.5rem] flex items-center justify-center text-slate-200 border border-slate-100 shadow-sm">
+                        <History size={48} strokeWidth={1.5} />
+                      </div>
+                      <div className="space-y-2">
+                        <p className="text-xl font-bold text-slate-400">Neural Repository Empty</p>
+                        <p className="text-sm text-slate-400 max-w-xs mx-auto">Start a new synthesis to begin building your logic history.</p>
+                      </div>
+                      <button onClick={() => setViewMode('INPUT')} className="px-12 py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] shadow-xl hover:bg-slate-800 transition-all">Generate Solution</button>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {history.map(item => (
-                        <div key={item.id} onClick={() => handleRestoreHistory(item)} className="group relative p-6 bg-white border border-slate-100 hover:border-slate-300 rounded-[2.5rem] transition-all cursor-pointer shadow-sm">
-                          <div className="flex items-center justify-between mb-5">
-                            <div className="flex items-center gap-3">
-                              <div className="p-2 bg-slate-50 rounded-xl text-slate-900 border border-slate-100">{PROCESS_MODULES.find(m => m.id === item.moduleId) ? ICON_MAP[PROCESS_MODULES.find(m => m.id === item.moduleId)!.icon] : <Layers size={14} />}</div>
-                              <div className="text-left"><p className="text-[9px] font-black text-slate-900 uppercase tracking-[0.2em]">{item.moduleTitle}</p><div className="flex items-center gap-1.5 text-slate-400 text-[8px] uppercase tracking-widest mt-1"><Clock size={8} /> {new Date(item.timestamp).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div></div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-bottom-6 duration-700">
+                      {history.map((item, idx) => (
+                        <div 
+                          key={item.id} 
+                          onClick={() => handleRestoreHistory(item)} 
+                          className="group relative p-8 bg-white border border-slate-100 hover:border-blue-200 rounded-[2.5rem] transition-all cursor-pointer shadow-sm hover:shadow-xl hover:-translate-y-1 flex flex-col gap-6"
+                          style={{ animationDelay: `${idx * 50}ms` }}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-900 border border-slate-100 group-hover:bg-blue-50 group-hover:border-blue-100 group-hover:text-blue-600 transition-all">
+                                {PROCESS_MODULES.find(m => m.id === item.moduleId) ? ICON_MAP[PROCESS_MODULES.find(m => m.id === item.moduleId)!.icon] : <Layers size={18} />}
+                              </div>
+                              <div className="text-left">
+                                <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">{item.moduleTitle}</p>
+                                <div className="flex items-center gap-1.5 text-slate-400 text-[9px] font-bold uppercase tracking-widest mt-1">
+                                  <Calendar size={10} /> {new Date(item.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                                  <span className="opacity-20 px-1">•</span>
+                                  <Clock size={10} /> {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </div>
+                              </div>
                             </div>
-                            <button onClick={(e) => deleteHistoryItem(e, item.id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"><Trash2 size={16} /></button>
+                            <button 
+                              onClick={(e) => deleteHistoryItem(e, item.id)} 
+                              className="p-2.5 text-slate-200 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100"
+                            >
+                              <Trash2 size={16} />
+                            </button>
                           </div>
-                          <p className="text-sm text-slate-600 font-medium leading-relaxed line-clamp-3 italic opacity-80 group-hover:opacity-100 transition-opacity">"{item.input}"</p>
+
+                          <div className="flex-1 space-y-4">
+                            <div className="flex items-center gap-2">
+                              <div className="w-1.5 h-1.5 rounded-full bg-slate-200 group-hover:bg-blue-400 transition-colors" />
+                              <h5 className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">Input Query</h5>
+                            </div>
+                            <p className="text-sm text-slate-600 font-medium leading-[1.7] line-clamp-3 italic opacity-80 group-hover:opacity-100 transition-opacity">
+                              "{item.input}"
+                            </p>
+                          </div>
+
+                          <div className="pt-4 border-t border-slate-50 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className={`w-2 h-2 rounded-full ${item.result.visual ? 'bg-indigo-400' : 'bg-slate-200'}`} title={item.result.visual ? 'Visual Schematic Included' : 'Textual Solution Only'} />
+                              <span className="text-[8px] font-black text-slate-300 uppercase tracking-widest">
+                                {item.result.visual ? 'Blueprint + Logic' : 'Standard Logic'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1 text-[9px] font-black text-blue-600 uppercase tracking-widest opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0 transition-all">
+                              View Results <ChevronRightIcon size={12} strokeWidth={3} />
+                            </div>
+                          </div>
                         </div>
                       ))}
                     </div>

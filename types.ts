@@ -12,7 +12,10 @@ export interface SolutionResult {
   solution: string;
   recommendations: string;
   diagramDescription: string;
+  realisticDiagramDescription: string;
+  diagramNodes?: Array<{ label: string; description: string }>;
   visual?: string;
+  realisticVisual?: string;
   links?: Array<{ uri: string; title: string }>;
 }
 
