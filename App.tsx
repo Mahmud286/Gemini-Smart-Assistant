@@ -50,13 +50,22 @@ import {
   SearchCode,
   ZapOff,
   Dna,
-  Eye
+  Eye,
+  Lock
 } from 'lucide-react';
 import { PROCESS_MODULES, ICON_MAP } from './constants';
 import { AppMode, SolutionResult, UserSession, ProcessModule, HistoryItem } from './types';
 import { geminiService } from './services/gemini';
 
-type ViewMode = 'INPUT' | 'PROCESSING' | 'RESULT' | 'HISTORY';
+// --- External AI Studio Key Utils ---
+// Fix: Use the globally defined AIStudio type and match modifiers for window.aistudio
+declare global {
+  interface Window {
+    readonly aistudio: AIStudio;
+  }
+}
+
+type ViewMode = 'INPUT' | 'PROCESSING' | 'RESULT' | 'HISTORY' | 'KEY_SELECTION';
 type ResultTab = 'AUDIT' | 'SOLUTION' | 'DIAGRAM' | 'SIMULATION';
 
 // --- Landing Page Component ---
@@ -162,9 +171,26 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [hasKey, setHasKey] = useState(false);
   
   const abortControllerRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // --- Initial Key Check ---
+  useEffect(() => {
+    const checkKey = async () => {
+      const selected = await window.aistudio.hasSelectedApiKey();
+      setHasKey(selected);
+      if (!selected) setViewMode('KEY_SELECTION');
+    };
+    checkKey();
+  }, []);
+
+  const handleOpenKeyDialog = async () => {
+    await window.aistudio.openSelectKey();
+    setHasKey(true);
+    setViewMode('INPUT');
+  };
 
   useEffect(() => {
     const savedHistory = localStorage.getItem(`solvesphere_history_${user.name}`);
@@ -292,8 +318,12 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
       setViewMode('RESULT');
     } catch (err: any) {
       const msg = String(err?.message || "").toLowerCase();
-      if (msg.includes("cancelled") || msg.includes("aborted")) return;
-      setError(err?.message || "Synthesis failure. Please try again.");
+      if (msg.includes("cancelled") || msg.includes("aborted")) {
+        setViewMode('INPUT');
+        return;
+      };
+      setError(err?.message || "Synthesis failure. Check your internet connection.");
+      setViewMode('RESULT');
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
@@ -303,13 +333,14 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
   const triggerDiagramSynthesis = async () => {
     if (!result || isDiagramLoading || result.visual) return;
     setIsDiagramLoading(true);
+    setError(null);
     try {
       const visual = await geminiService.generateVisual(result.diagramDescription, input, false);
       const updatedResult = { ...result, visual };
       setResult(updatedResult);
       updateHistoryItem(updatedResult);
-    } catch (err) {
-      console.error("Diagram synthesis failed", err);
+    } catch (err: any) {
+      setError(err?.message || "Visual schematic engine failure.");
     } finally {
       setIsDiagramLoading(false);
     }
@@ -318,13 +349,14 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
   const triggerSimulationSynthesis = async () => {
     if (!result || isSimulationLoading || result.realisticVisual) return;
     setIsSimulationLoading(true);
+    setError(null);
     try {
       const realisticVisual = await geminiService.generateVisual(result.realisticDiagramDescription, input, true);
       const updatedResult = { ...result, realisticVisual };
       setResult(updatedResult);
       updateHistoryItem(updatedResult);
-    } catch (err) {
-      console.error("Simulation synthesis failed", err);
+    } catch (err: any) {
+      setError(err?.message || "Photorealistic simulation engine failure.");
     } finally {
       setIsSimulationLoading(false);
     }
@@ -528,6 +560,28 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
         {/* Content Pane */}
         <div className="flex-1 bg-white relative flex flex-col overflow-hidden">
           
+          {/* KEY SELECTION VIEW */}
+          <div className={`absolute inset-0 flex flex-col items-center justify-center p-8 bg-white transition-all duration-700 ease-in-out ${viewMode === 'KEY_SELECTION' ? 'translate-y-0 opacity-100 z-[100]' : '-translate-y-full opacity-0 z-0'}`}>
+              <div className="max-w-md w-full glass-panel p-12 rounded-[3.5rem] text-center space-y-10 shadow-2xl bg-white border border-slate-100">
+                  <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-[2rem] flex items-center justify-center mx-auto border border-blue-100">
+                    <Lock size={40} />
+                  </div>
+                  <div className="space-y-4">
+                    <h2 className="text-2xl font-black text-slate-900 tracking-tight uppercase">High-Reasoning Locked</h2>
+                    <p className="text-slate-500 font-medium leading-relaxed text-sm">
+                      Advanced synthesis requires a paid API key from your personal GCP project. Please connect your key to continue.
+                    </p>
+                    <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="text-blue-600 text-[10px] font-black uppercase tracking-widest hover:underline">Billing Documentation &rarr;</a>
+                  </div>
+                  <button 
+                    onClick={handleOpenKeyDialog}
+                    className="w-full h-16 bg-slate-900 text-white text-[10px] font-black rounded-2xl uppercase tracking-[0.3em] shadow-lg hover:bg-slate-800 transition-all flex items-center justify-center gap-3"
+                  >
+                    Select API Key <ChevronRight size={16} />
+                  </button>
+                </div>
+          </div>
+
           {/* INPUT VIEW */}
           <div className={`absolute inset-0 flex flex-col transition-all duration-500 ease-out ${viewMode === 'INPUT' ? 'translate-y-0 opacity-100 z-30' : 'translate-y-full opacity-0 z-0'}`}>
               <div className="p-6 border-b border-slate-50 flex items-center justify-between flex-shrink-0">
@@ -1060,12 +1114,12 @@ const Dashboard: React.FC<{ user: UserSession; onLogout: () => void }> = ({ user
           </div>
 
           {error && (
-            <div className="absolute inset-0 bg-white/95 backdrop-blur-2xl z-[100] flex items-center justify-center p-8">
+            <div className="absolute inset-0 bg-white/95 backdrop-blur-2xl z-[150] flex items-center justify-center p-8">
                <div className="max-w-md w-full glass-panel p-12 rounded-[3.5rem] text-center space-y-10 shadow-2xl bg-white border border-slate-100">
                   <div className="w-20 h-20 bg-red-50 text-red-500 rounded-[2rem] flex items-center justify-center mx-auto border border-red-100"><AlertCircle size={40} /></div>
                   <div className="space-y-2"><h4 className="font-black text-slate-900 uppercase text-xs tracking-[0.4em]">Engine Overload</h4><p className="text-slate-500 font-medium leading-relaxed">{error}</p></div>
                   <div className="flex flex-col gap-3 pt-6">
-                    <button onClick={() => handleExecute()} className="w-full h-16 bg-slate-900 text-white text-[10px] font-black rounded-2xl uppercase tracking-[0.3em] shadow-lg">Retry Synthesis</button>
+                    <button onClick={() => { handleExecute(); setError(null); }} className="w-full h-16 bg-slate-900 text-white text-[10px] font-black rounded-2xl uppercase tracking-[0.3em] shadow-lg">Retry Synthesis</button>
                     <button onClick={handleEditInput} className="w-full h-16 bg-white text-slate-400 text-[10px] font-black rounded-2xl uppercase tracking-[0.3em] border border-slate-100">Refine Input</button>
                   </div>
                 </div>

@@ -3,10 +3,9 @@ import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { SolutionResult } from "../types";
 
 export class GeminiService {
-  private ai: GoogleGenAI;
-
-  constructor() {
-    this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  private getAI() {
+    // Correctly use process.env.API_KEY directly as per guidelines
+    return new GoogleGenAI({ apiKey: process.env.API_KEY });
   }
 
   private handleError(error: any): never {
@@ -19,7 +18,7 @@ export class GeminiService {
       throw new Error("AI synthesis limit reached. Please wait a few moments before trying again.");
     }
     if (errorString.includes("401") || errorString.includes("403") || errorString.includes("api_key")) {
-      throw new Error("Authentication failed. The AI service may be temporarily unavailable.");
+      throw new Error("Authentication failed. Ensure you have selected a valid paid project API key.");
     }
     if (errorString.includes("safety") || errorString.includes("blocked") || errorString.includes("candidate")) {
       throw new Error("The request was flagged by safety filters. Please try rephrasing your input.");
@@ -31,7 +30,7 @@ export class GeminiService {
       throw new Error("Network connection error. Please check your internet connectivity.");
     }
     
-    throw new Error("An unexpected error occurred during synthesis. Please refine your request.");
+    throw new Error(error?.message || "An unexpected error occurred during synthesis. Please refine your request.");
   }
 
   async processRequest(
@@ -41,10 +40,11 @@ export class GeminiService {
     useSearch: boolean = false,
     signal?: AbortSignal
   ): Promise<SolutionResult> {
+    const ai = this.getAI();
     try {
       if (signal?.aborted) throw new Error("aborted");
 
-      const response = await this.ai.models.generateContent({
+      const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         contents: [{ 
           role: 'user', 
@@ -54,25 +54,24 @@ export class GeminiService {
           ] 
         }],
         config: {
-          systemInstruction: "You are the SolveSphere Intelligence Engine. Your primary goal is to provide accurate, high-fidelity solutions for students and business owners. IMPORTANT: If the user's input contains spelling mistakes, typos, or nonsensical words, you must use your advanced linguistic capabilities to infer the intended meaning, correct the errors internally, and provide the correct answer or strategy. Never criticize or explicitly correct the user's spelling; simply deliver the intelligence they intended to request as if the input were perfectly written.",
+          systemInstruction: "You are the SolveSphere Intelligence Engine. Your primary goal is to provide accurate, high-fidelity solutions. Provide results strictly in JSON format according to the schema. If the user input has typos, fix them internally.",
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              analysis: { type: Type.STRING, description: "Problem audit and understanding. Mentally correct user spelling errors here." },
-              steps: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Numbered logical steps leading to the correct solution." },
-              solution: { type: Type.STRING, description: "The core correct output, ignoring any typos in the original input." },
-              recommendations: { type: Type.STRING, description: "Forward-looking strategic advice." },
-              diagramDescription: { type: Type.STRING, description: "A detailed description for generating a schematic, non-realistic diagram, technical blueprint, or flowchart of the solution logic." },
-              realisticDiagramDescription: { type: Type.STRING, description: "A vivid, detailed description of a realistic, real-world scene or high-fidelity simulation representing the solution in practice." },
+              analysis: { type: Type.STRING },
+              steps: { type: Type.ARRAY, items: { type: Type.STRING } },
+              solution: { type: Type.STRING },
+              recommendations: { type: Type.STRING },
+              diagramDescription: { type: Type.STRING },
+              realisticDiagramDescription: { type: Type.STRING },
               diagramNodes: {
                 type: Type.ARRAY,
-                description: "A list of key nodes or sections within the schematic diagram to explain to the user.",
                 items: {
                   type: Type.OBJECT,
                   properties: {
-                    label: { type: Type.STRING, description: "Short name of the node or section." },
-                    description: { type: Type.STRING, description: "Detailed explanation of this component's role in the logic." }
+                    label: { type: Type.STRING },
+                    description: { type: Type.STRING }
                   },
                   required: ["label", "description"]
                 }
@@ -87,9 +86,16 @@ export class GeminiService {
       });
 
       if (signal?.aborted) throw new Error("aborted");
-      if (!response.text) throw new Error("Empty response from AI");
+      let text = response.text || '';
       
-      const result = JSON.parse(response.text);
+      // Robust JSON extraction
+      if (text.includes("```json")) {
+        text = text.split("```json")[1].split("```")[0];
+      } else if (text.includes("```")) {
+        text = text.split("```")[1].split("```")[0];
+      }
+      
+      const result = JSON.parse(text.trim());
       const groundingLinks = response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((chunk: any) => ({
         uri: chunk.web?.uri || '',
         title: chunk.web?.title || 'Resource'
@@ -109,14 +115,15 @@ export class GeminiService {
   }
 
   async generateVisual(prompt: string, context: string, isRealistic: boolean = false, signal?: AbortSignal): Promise<string> {
+    const ai = this.getAI();
     try {
       if (signal?.aborted) throw new Error("aborted");
 
       const technicalPrompt = isRealistic 
-        ? `Cinematic, photorealistic high-fidelity 3D simulation scene. Style: Professional photography, 8k resolution, detailed textures, realistic lighting and shadows, real-world environment. Subject: ${prompt}. Context: ${context}`
-        : `Professional schematic 2D diagram. Style: Flat vector illustration, minimal technical design, clean lines, no realism, no 3D shading, blueprint aesthetic, schematic flowchart style. Subject: ${prompt}. Context: ${context}`;
+        ? `High-fidelity 3D realistic cinematic scene. High resolution, professional lighting. Subject: ${prompt}. Related context: ${context}`
+        : `Technical schematic diagram, 2D vector style, clean flat illustration, minimal colors. Subject: ${prompt}. Related context: ${context}`;
       
-      const response = await this.ai.models.generateContent({
+      const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: {
           parts: [{ text: technicalPrompt }],
@@ -128,12 +135,13 @@ export class GeminiService {
 
       if (signal?.aborted) throw new Error("aborted");
 
-      for (const part of response.candidates?.[0]?.content.parts || []) {
+      const parts = response.candidates?.[0]?.content.parts || [];
+      for (const part of parts) {
         if (part.inlineData) {
           return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
         }
       }
-      throw new Error("Visual generation failed - No image data returned");
+      throw new Error("The visual engine did not return an image. This might be due to safety filters or a model timeout.");
     } catch (error: any) {
       if (error?.message === "aborted" || signal?.aborted) {
         throw new Error("Synthesis cancelled by user.");
