@@ -4,8 +4,20 @@ import { SolutionResult } from "../types";
 
 export class GeminiService {
   private getAI() {
-    // Correctly use process.env.API_KEY directly as per guidelines
     return new GoogleGenAI({ apiKey: process.env.API_KEY });
+  }
+
+  private async retry<T>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> {
+    try {
+      return await fn();
+    } catch (error: any) {
+      const isRetryable = error?.message?.includes("429") || error?.message?.includes("503") || error?.message?.includes("overloaded");
+      if (isRetryable && retries > 0) {
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.retry(fn, retries - 1, delay * 2);
+      }
+      throw error;
+    }
   }
 
   private handleError(error: any): never {
@@ -15,22 +27,16 @@ export class GeminiService {
       throw new Error("Synthesis cancelled by user.");
     }
     if (errorString.includes("429") || errorString.includes("quota")) {
-      throw new Error("AI synthesis limit reached. Please wait a few moments before trying again.");
+      throw new Error("Rate limit reached. We are retrying, but the AI is currently under high demand.");
     }
     if (errorString.includes("401") || errorString.includes("403") || errorString.includes("api_key")) {
-      throw new Error("Authentication failed. Ensure you have selected a valid paid project API key.");
+      throw new Error("Authentication failed. Please check your project billing and API key settings.");
     }
-    if (errorString.includes("safety") || errorString.includes("blocked") || errorString.includes("candidate")) {
-      throw new Error("The request was flagged by safety filters. Please try rephrasing your input.");
-    }
-    if (errorString.includes("503") || errorString.includes("overloaded")) {
-      throw new Error("The AI model is currently overloaded. Retrying in a moment might help.");
-    }
-    if (errorString.includes("network") || errorString.includes("fetch") || errorString.includes("offline")) {
-      throw new Error("Network connection error. Please check your internet connectivity.");
+    if (errorString.includes("safety") || errorString.includes("blocked")) {
+      throw new Error("The request was filtered for safety. Please try rephrasing your input.");
     }
     
-    throw new Error(error?.message || "An unexpected error occurred during synthesis. Please refine your request.");
+    throw new Error(error?.message || "Synthesis engine error. Please try again in a few seconds.");
   }
 
   async processRequest(
@@ -40,8 +46,8 @@ export class GeminiService {
     useSearch: boolean = false,
     signal?: AbortSignal
   ): Promise<SolutionResult> {
-    const ai = this.getAI();
-    try {
+    return this.retry(async () => {
+      const ai = this.getAI();
       if (signal?.aborted) throw new Error("aborted");
 
       const response = await ai.models.generateContent({
@@ -54,7 +60,7 @@ export class GeminiService {
           ] 
         }],
         config: {
-          systemInstruction: "You are the SolveSphere Intelligence Engine. Your primary goal is to provide accurate, high-fidelity solutions. Provide results strictly in JSON format according to the schema. If the user input has typos, fix them internally.",
+          systemInstruction: "You are the SolveSphere Intelligence Engine. Return strictly valid JSON. If the input has typos, ignore them and provide the correct logical output.",
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
@@ -79,8 +85,8 @@ export class GeminiService {
             },
             required: ["analysis", "steps", "solution", "recommendations", "diagramDescription", "realisticDiagramDescription", "diagramNodes"]
           },
-          temperature: 0.2,
-          thinkingConfig: { thinkingBudget: 16000 },
+          temperature: 0.1,
+          thinkingConfig: { thinkingBudget: 8000 }, // Reduced for faster response
           tools: useSearch ? [{ googleSearch: {} }] : undefined
         }
       });
@@ -88,49 +94,37 @@ export class GeminiService {
       if (signal?.aborted) throw new Error("aborted");
       let text = response.text || '';
       
-      // Robust JSON extraction
-      if (text.includes("```json")) {
-        text = text.split("```json")[1].split("```")[0];
-      } else if (text.includes("```")) {
-        text = text.split("```")[1].split("```")[0];
-      }
+      // Clean up potential markdown artifacts
+      text = text.replace(/```json\n?/, "").replace(/\n?```/, "").trim();
       
-      const result = JSON.parse(text.trim());
-      const groundingLinks = response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((chunk: any) => ({
-        uri: chunk.web?.uri || '',
-        title: chunk.web?.title || 'Resource'
-      })).filter((l: any) => l.uri !== '') || [];
+      try {
+        const result = JSON.parse(text);
+        const groundingLinks = response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((chunk: any) => ({
+          uri: chunk.web?.uri || '',
+          title: chunk.web?.title || 'Knowledge Source'
+        })).filter((l: any) => l.uri !== '') || [];
 
-      return {
-        ...result,
-        links: groundingLinks
-      };
-    } catch (error: any) {
-      if (error?.message === "aborted" || signal?.aborted) {
-        throw new Error("Synthesis cancelled by user.");
+        return { ...result, links: groundingLinks };
+      } catch (e) {
+        console.error("JSON Parse Error. Raw text:", text);
+        throw new Error("Failed to parse AI response. The model may have returned malformed data.");
       }
-      console.error("Gemini Engine Error:", error);
-      return this.handleError(error);
-    }
+    }).catch(err => this.handleError(err));
   }
 
   async generateVisual(prompt: string, context: string, isRealistic: boolean = false, signal?: AbortSignal): Promise<string> {
-    const ai = this.getAI();
-    try {
+    return this.retry(async () => {
+      const ai = this.getAI();
       if (signal?.aborted) throw new Error("aborted");
 
       const technicalPrompt = isRealistic 
-        ? `High-fidelity 3D realistic cinematic scene. High resolution, professional lighting. Subject: ${prompt}. Related context: ${context}`
-        : `Technical schematic diagram, 2D vector style, clean flat illustration, minimal colors. Subject: ${prompt}. Related context: ${context}`;
+        ? `A photorealistic high-fidelity real-world cinematic scene depicting: ${prompt}. Context: ${context}`
+        : `A clean, professional 2D schematic diagram, minimal technical vector style. Subject: ${prompt}. Context: ${context}`;
       
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
-        contents: {
-          parts: [{ text: technicalPrompt }],
-        },
-        config: {
-          imageConfig: { aspectRatio: "16:9" }
-        }
+        contents: { parts: [{ text: technicalPrompt }] },
+        config: { imageConfig: { aspectRatio: "16:9" } }
       });
 
       if (signal?.aborted) throw new Error("aborted");
@@ -141,14 +135,8 @@ export class GeminiService {
           return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
         }
       }
-      throw new Error("The visual engine did not return an image. This might be due to safety filters or a model timeout.");
-    } catch (error: any) {
-      if (error?.message === "aborted" || signal?.aborted) {
-        throw new Error("Synthesis cancelled by user.");
-      }
-      console.error("Gemini Visual Error:", error);
-      return this.handleError(error);
-    }
+      throw new Error("Visual generation failed.");
+    }).catch(err => this.handleError(err));
   }
 }
 
